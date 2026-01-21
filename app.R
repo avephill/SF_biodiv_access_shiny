@@ -421,6 +421,28 @@ server <- function(input, output, session) {
       ) %>%
       
       addPolygons(
+        data = rsf_projects,
+        group = "RSF Program Projects",
+        fillColor = "purple",
+        fillOpacity = 0.3,
+        color = "purple",
+        weight = 1,
+        label = ~prj_name,
+        highlightOptions = highlightOptions(
+          weight = 5,
+          color = "blue",
+          fillOpacity = 0.5,
+          bringToFront = TRUE
+        ),
+        labelOptions = labelOptions(
+          style = list("font-weight" = "bold", "color" = "blue"),
+          textsize = "12px",
+          direction = "auto",
+          noHide = FALSE # Labels appear on hover
+        )
+      ) %>%
+      
+      addPolygons(
         data = biodiv_hotspots,
         group = "Hotspots (KnowBR)",
         fillColor = "firebrick",
@@ -501,7 +523,7 @@ server <- function(input, output, session) {
       setView(lng = -122.4194, lat = 37.7749, zoom = 12) %>%
       addLayersControl(
         baseGroups    = c("Street Map (Default)", "Satellite (ESRI)", "CartoDB.Positron"),
-        overlayGroups = c("Income", "Greenspace", 
+        overlayGroups = c("Income", "Greenspace", "RSF Program Projects",
                           "Hotspots (KnowBR)", "Coldspots (KnowBR)",
                           "Species Richness", "Data Availability",
                           "Isochrones", "NDVI Raster"),
@@ -509,6 +531,7 @@ server <- function(input, output, session) {
       ) %>%
       hideGroup("Income") %>%
       hideGroup("Greenspace") %>%
+      hideGroup("RSF Program Projects") %>%
       hideGroup("Hotspots (KnowBR)") %>%
       hideGroup("Coldspots (KnowBR)") %>%
       hideGroup("Species Richness") %>%
@@ -701,7 +724,7 @@ server <- function(input, output, session) {
     leafletProxy("isoMap") %>%
       addLayersControl(
         baseGroups = c("Street Map (Default)", "Satellite (ESRI)", "CartoDB.Positron"),
-        overlayGroups = c("Income", "Greenspace", 
+        overlayGroups = c("Income", "Greenspace", "RSF Program Projects",
                           "Hotspots (KnowBR)", "Coldspots (KnowBR)",
                           "Species Richness", "Data Availability",
                           "Isochrones", "NDVI Raster"),
