@@ -883,8 +883,13 @@ server <- function(input, output, session) {
     if (nrow(df) == 0) {
       return(DT::datatable(data.frame("Message" = "No isochrones generated yet.")))
     }
+    
+    # Select only the columns to display (excluding Greenspace_m2)
+    df_display <- df |>
+      select(-Greenspace_m2)
+    
     DT::datatable(
-      df,
+      df_display,
       colnames = c(
         "Mode"                 = "Mode",
         "Time (min)"           = "Time",
@@ -899,7 +904,6 @@ server <- function(input, output, session) {
         "Bird Species"         = "Bird_Species",
         "Mammal Species"       = "Mammal_Species",
         "Plant Species"        = "Plant_Species",
-        # "Greenspace (m²)"      = "Greenspace_m2",
         "Greenspace (%)"       = "Greenspace_percent"
       ),
       options = list(pageLength = 10, autoWidth = TRUE),
@@ -1016,7 +1020,7 @@ server <- function(input, output, session) {
     
     ggplot(df_plot, aes(x = IsoLabel)) +
       geom_col(aes(y = GBIF_Species), fill = "steelblue", alpha = 0.7) +
-      geom_line(aes(y = EstimatedPopulation / 1000, group = 1), color = "red", size = 1) +
+      geom_line(aes(y = EstimatedPopulation / 1000, group = 1), color = "red", linewidth = 1) +
       geom_point(aes(y = EstimatedPopulation / 1000), color = "red", size = 3) +
       labs(
         x = "Isochrone (Mode-Time)",
