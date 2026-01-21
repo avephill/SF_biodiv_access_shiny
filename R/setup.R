@@ -23,32 +23,62 @@ library(shinycssloaders)
 mapbox_token <- "pk.eyJ1Ijoia3dhbGtlcnRjdSIsImEiOiJjbHc3NmI0cDMxYzhyMmt0OXBiYnltMjVtIn0.Thtu6WqIhOfin6AykskM2g" 
 # mb_access_token(mapbox_token, install = FALSE)
 
-# ------------------------------------------------
-# 2) Load Data
-# ------------------------------------------------
-# -- Greenspace
-getwd()
-osm_greenspace <- st_read("/vsicurl/https://huggingface.co/datasets/boettiger-lab/sf_biodiv_access/resolve/main/greenspaces_osm_nad83.shp", quiet = TRUE) %>%
+# ============================================================================
+# Setup: Cache directory and download helper
+# ============================================================================
+cache_dir <- "data/cached"
+if (!dir.exists(cache_dir)) {
+  dir.create(cache_dir, recursive = TRUE)
+}
 
+download_if_missing <- function(url, destfile) {
+  if (!file.exists(destfile)) {
+    download.file(url, destfile, mode = "wb")
+  }
+}
+
+# ============================================================================
+# Load Data
+# ============================================================================
+
+# -- Greenspace
+greenspace_shp <- file.path(cache_dir, "greenspaces_osm_nad83.shp")
+if (!file.exists(greenspace_shp)) {
+  st_read("/vsicurl/https://huggingface.co/datasets/boettiger-lab/sf_biodiv_access/resolve/main/greenspaces_osm_nad83.shp", quiet = TRUE) |>
+    st_write(greenspace_shp, quiet = TRUE)
+}
+osm_greenspace <- st_read(greenspace_shp, quiet = TRUE) |>
   st_transform(4326)
 if (!"name" %in% names(osm_greenspace)) {
   osm_greenspace$name <- "Unnamed Greenspace"
 }
 
 # -- NDVI Raster
-ndvi <- terra::rast("/vsicurl/https://huggingface.co/datasets/boettiger-lab/sf_biodiv_access/resolve/main/SF_EastBay_NDVI_Sentinel_10.tif")
-
+ndvi_file <- file.path(cache_dir, "SF_EastBay_NDVI_Sentinel_10.tif")
+download_if_missing(
+  "https://huggingface.co/datasets/boettiger-lab/sf_biodiv_access/resolve/main/SF_EastBay_NDVI_Sentinel_10.tif",
+  ndvi_file
+)
+ndvi <- terra::rast(ndvi_file)
 
 # -- GBIF data
 # Load what is basically inter_gbif !!!!! 
 # load("data/sf_gbif.Rdata")  # => sf_gbif
-
-download.file('https://huggingface.co/datasets/boettiger-lab/sf_biodiv_access/resolve/main/gbif_census_ndvi_anno.Rdata', '/tmp/gbif_census_ndvi_anno.Rdata')
-load('/tmp/gbif_census_ndvi_anno.Rdata')
+gbif_file <- file.path(cache_dir, "gbif_census_ndvi_anno.Rdata")
+download_if_missing(
+  "https://huggingface.co/datasets/boettiger-lab/sf_biodiv_access/resolve/main/gbif_census_ndvi_anno.Rdata",
+  gbif_file
+)
+load(gbif_file)
 vect_gbif <- vect(sf_gbif)
+
 # -- Precomputed CBG data
-download.file('https://huggingface.co/datasets/boettiger-lab/sf_biodiv_access/resolve/main/cbg_vect_sf.Rdata', '/tmp/cbg_vect_sf.Rdata')
-load('/tmp/cbg_vect_sf.Rdata')
+cbg_file <- file.path(cache_dir, "cbg_vect_sf.Rdata")
+download_if_missing(
+  "https://huggingface.co/datasets/boettiger-lab/sf_biodiv_access/resolve/main/cbg_vect_sf.Rdata",
+  cbg_file
+)
+load(cbg_file)
 
 if (!"unique_species" %in% names(cbg_vect_sf)) {
   cbg_vect_sf$unique_species <- cbg_vect_sf$n_species
@@ -64,8 +94,23 @@ if (!"ndvi_mean" %in% names(cbg_vect_sf)) {
 }
 
 # -- Hotspots/Coldspots
-biodiv_hotspots  <- st_read("/vsicurl/https://huggingface.co/datasets/boettiger-lab/sf_biodiv_access/resolve/main/hotspots.shp",  quiet = TRUE) %>% st_transform(4326)
-biodiv_coldspots <- st_read("/vsicurl/https://huggingface.co/datasets/boettiger-lab/sf_biodiv_access/resolve/main/coldspots.shp", quiet = TRUE) %>% st_transform(4326)
+hotspots_shp <- file.path(cache_dir, "hotspots.shp")
+if (!file.exists(hotspots_shp)) {
+  st_read("/vsicurl/https://huggingface.co/datasets/boettiger-lab/sf_biodiv_access/resolve/main/hotspots.shp", quiet = TRUE) |>
+    st_write(hotspots_shp, quiet = TRUE)
+}
+biodiv_hotspots <- st_read(hotspots_shp, quiet = TRUE) |> st_transform(4326)
+
+coldspots_shp <- file.path(cache_dir, "coldspots.shp")
+if (!file.exists(coldspots_shp)) {
+  st_read("/vsicurl/https://huggingface.co/datasets/boettiger-lab/sf_biodiv_access/resolve/main/coldspots.shp", quiet = TRUE) |>
+    st_write(coldspots_shp, quiet = TRUE)
+}
+biodiv_coldspots <- st_read(coldspots_shp, quiet = TRUE) |> st_transform(4326)
+
+# -- RSF Program Projects
+rsf_projects <- st_read("data/source/RSF_Program_Projects_polygons.gpkg", quiet = TRUE) %>% 
+  st_transform(4326)
 
 
 
