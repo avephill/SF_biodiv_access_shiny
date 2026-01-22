@@ -15,7 +15,4 @@ install.packages(c("shinyjs",
 "sjlabelled",
 "bslib",
 "shinycssloaders",
-"duckdb",
-"DBI",
-"dbplyr",
-"arrow"))
+"duckdb"))
