@@ -791,10 +791,10 @@ server <- function(input, output, session) {
     leafletProxy("isoMap") %>%
       addLayersControl(
         baseGroups = c("Street Map (Default)", "Satellite (ESRI)", "CartoDB.Positron"),
-        overlayGroups = c("Income", "Greenspace", "RSF Program Projects",
+        overlayGroups = c("Income", "Greenspace", "Greenspace Distance", "RSF Program Projects",
                           "Hotspots (KnowBR)", "Coldspots (KnowBR)",
                           "Species Richness", "Data Availability",
-                          "Isochrones", "NDVI Raster", "Greenspace Distance"),
+                          "Isochrones", "NDVI Raster"),
         options = layersControlOptions(collapsed = FALSE)
       )
   })
