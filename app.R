@@ -1019,7 +1019,7 @@ server <- function(input, output, session) {
         "Plant Species"        = "Plant_Species",
         "Greenspace (%)"       = "Greenspace_percent"
       ),
-      options = list(pageLength = 10, autoWidth = TRUE),
+      options = list(pageLength = 10, autoWidth = TRUE, scrollX = TRUE),
       rownames = FALSE
     )
   })
