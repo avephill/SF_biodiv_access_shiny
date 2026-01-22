@@ -781,7 +781,8 @@ server <- function(input, output, session) {
           position = "bottomright",
           pal = ndvi_pal,
           values = ndvi_vals,
-          title = "NDVI"
+          title = "NDVI",
+          group = "NDVI Raster"
         )
     }
     
