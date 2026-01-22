@@ -32,7 +32,8 @@ source('R/setup.R') # Load necessary data (annotated gbif, annotated cbg, ndvi)
 # ============================================================================
 con_temp <- dbConnect(duckdb::duckdb(), dbdir = ":memory:")
 dbExecute(con_temp, "INSTALL spatial; LOAD spatial;")
-gbif_tab_temp <- tbl(con_temp, "read_parquet('data/output/gbif_census_ndvi_anno.parquet')")
+dbExecute(con_temp, "INSTALL httpfs; LOAD httpfs;")
+gbif_tab_temp <- tbl(con_temp, paste0("read_parquet('", gbif_parquet, "')"))
 
 gbif_classes <- gbif_tab_temp |> distinct(class) |> collect() |> pull(class) |> sort()
 gbif_families <- gbif_tab_temp |> distinct(family) |> collect() |> pull(family) |> sort()
@@ -339,9 +340,10 @@ server <- function(input, output, session) {
   # ============================================================================
   con <- dbConnect(duckdb::duckdb(), dbdir = ":memory:")
   dbExecute(con, "INSTALL spatial; LOAD spatial;")
+  dbExecute(con, "INSTALL httpfs; LOAD httpfs;")
   
   # Load GBIF parquet as table reference (reuse throughout session)
-  gbif_tab <- tbl(con, "read_parquet('data/output/gbif_census_ndvi_anno.parquet')")
+  gbif_tab <- tbl(con, paste0("read_parquet('", gbif_parquet, "')"))
   
   # Cleanup connection on session end
   onStop(function() {
