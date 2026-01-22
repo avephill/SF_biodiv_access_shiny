@@ -777,12 +777,13 @@ server <- function(input, output, session) {
           project = TRUE,
           group = "NDVI Raster"
         ) %>%
+        removeControl(layerId = "ndvi_legend") %>%
         addLegend(
           position = "bottomright",
           pal = ndvi_pal,
           values = ndvi_vals,
           title = "NDVI",
-          group = "NDVI Raster"
+          layerId = "ndvi_legend"
         )
     }
     
@@ -868,14 +869,18 @@ server <- function(input, output, session) {
       min_dist_val <- NA
       
       if (!is.null(user_point_sf)) {
-        min_dist_val <- greenspace_dist_raster |> extract(user_point_sf) |> pull(greenspace_nearest_dist)
-        user_point_osm_id <- greenspace_osmid_raster |> extract(user_point_sf) |> pull(2)
+        # Extract values from rasters (ensure single value with [1])
+        min_dist_val <- (greenspace_dist_raster |> extract(user_point_sf) |> pull(greenspace_nearest_dist))[1]
+        user_point_osm_id <- (greenspace_osmid_raster |> extract(user_point_sf) |> pull(2))[1]
 
         osm_greenspace_name <- osm_greenspace |> mutate(osm_id = as.numeric(osm_id)) |>   
           filter(osm_id == as.numeric(user_point_osm_id)) |> pull(name)
           # browser()
-        if(is.na(osm_greenspace_name)) {
+        # Ensure single value for conditional check
+        if(length(osm_greenspace_name) == 0 || is.na(osm_greenspace_name[1])) {
           osm_greenspace_name <- "Unnamed Greenspace"
+        } else {
+          osm_greenspace_name <- osm_greenspace_name[1]
         }
       }
     
@@ -928,21 +933,19 @@ server <- function(input, output, session) {
         summarise(
           n_records = n(),
           n_species = n_distinct(species),
-          n_birds = n_distinct(case_when(class == 'Aves' ~ species, TRUE ~ NULL)),
-          n_mammals = n_distinct(case_when(class == 'Mammalia' ~ species, TRUE ~ NULL)),
-          n_plants = n_distinct(case_when(
-            class %in% c('Magnoliopsida','Liliopsida','Pinopsida','Polypodiopsida',
-                         'Equisetopsida','Bryopsida','Marchantiopsida') ~ species,
-            TRUE ~ NULL
-          ))
+          n_birds = sql("COUNT(DISTINCT CASE WHEN class = 'Aves' THEN species END)"),
+          n_mammals = sql("COUNT(DISTINCT CASE WHEN class = 'Mammalia' THEN species END)"),
+          n_plants = sql("COUNT(DISTINCT CASE WHEN class IN ('Magnoliopsida','Liliopsida','Pinopsida','Polypodiopsida','Equisetopsida','Bryopsida','Marchantiopsida') THEN species END)")
         ) |>
         collect()
       
+      # Extract values (summarise always returns 1 row, even if 0 matches)
       n_records <- ifelse(nrow(gbif_summary) > 0, gbif_summary$n_records, 0)
       n_species <- ifelse(nrow(gbif_summary) > 0, gbif_summary$n_species, 0)
       n_birds <- ifelse(nrow(gbif_summary) > 0, gbif_summary$n_birds, 0)
       n_mammals <- ifelse(nrow(gbif_summary) > 0, gbif_summary$n_mammals, 0)
       n_plants <- ifelse(nrow(gbif_summary) > 0, gbif_summary$n_plants, 0)
+
       
       iso_area_km2 <- round(iso_area_m2 / 1e6, 3)
       
@@ -978,7 +981,7 @@ server <- function(input, output, session) {
       summarise(n_species = n_distinct(species)) |>
       collect()
     
-    union_n_species <- ifelse(nrow(union_gbif_summary) > 0, union_gbif_summary$n_species, 0)
+    union_n_species <- if (nrow(union_gbif_summary) > 0) union_gbif_summary$n_species[1] else 0
     rank_percentile <- round(100 * ecdf(cbg_vect_sf$unique_species)(union_n_species), 1)
     attr(results, "bio_percentile") <- rank_percentile
 
