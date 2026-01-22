@@ -21,8 +21,24 @@ library(sjPlot)
 library(sjlabelled)
 library(bslib)
 library(shinycssloaders)
+library(DBI)
+library(duckdb)
+library(dbplyr)
 
 source('R/setup.R') # Load necessary data (annotated gbif, annotated cbg, ndvi)
+
+# ============================================================================
+# Load GBIF dropdown values from parquet (for UI initialization)
+# ============================================================================
+con_temp <- dbConnect(duckdb::duckdb(), dbdir = ":memory:")
+dbExecute(con_temp, "INSTALL spatial; LOAD spatial;")
+gbif_tab_temp <- tbl(con_temp, "read_parquet('data/output/gbif_census_ndvi_anno.parquet')")
+
+gbif_classes <- gbif_tab_temp |> distinct(class) |> collect() |> pull(class) |> sort()
+gbif_families <- gbif_tab_temp |> distinct(family) |> collect() |> pull(family) |> sort()
+
+dbDisconnect(con_temp, shutdown = TRUE)
+rm(con_temp, gbif_tab_temp)
 
 # Define your Mapbox token securely
 mapbox_token <- "pk.eyJ1Ijoia3dhbGtlcnRjdSIsImEiOiJjbHc3NmI0cDMxYzhyMmt0OXBiYnltMjVtIn0.Thtu6WqIhOfin6AykskM2g" 
@@ -198,13 +214,13 @@ ui <- dashboardPage(
                   selectInput(
                     "class_filter",
                     "Select a GBIF Class to Summarize:",
-                    choices = c("All", sort(unique(sf_gbif$class))), 
+                    choices = c("All", gbif_classes), 
                     selected = "All"
                   ),
                   selectInput(
                     "family_filter",
                     "Filter by Family (optional):",
-                    choices = c("All", sort(unique(sf_gbif$family))),
+                    choices = c("All", gbif_families),
                     selected = "All"
                   )
                 ),
@@ -317,6 +333,20 @@ ui <- dashboardPage(
 # Server
 # ------------------------------------------------
 server <- function(input, output, session) {
+  
+  # ============================================================================
+  # Initialize DuckDB connection (one per session)
+  # ============================================================================
+  con <- dbConnect(duckdb::duckdb(), dbdir = ":memory:")
+  dbExecute(con, "INSTALL spatial; LOAD spatial;")
+  
+  # Load GBIF parquet as table reference (reuse throughout session)
+  gbif_tab <- tbl(con, "read_parquet('data/output/gbif_census_ndvi_anno.parquet')")
+  
+  # Cleanup connection on session end
+  onStop(function() {
+    dbDisconnect(con, shutdown = TRUE)
+  })
   
   chosen_point <- reactiveVal(NULL)
   
@@ -889,28 +919,29 @@ server <- function(input, output, session) {
       ndvi_vals <- ndvi_vals[!is.na(ndvi_vals)]
       mean_ndvi <- ifelse(length(ndvi_vals) > 0, round(mean(ndvi_vals, na.rm=TRUE), 3), NA)
       
-      # Intersection with GBIF data
-      inter_gbif <- intersect(vect_gbif, vect_poly_i)
-      inter_gbif <- st_as_sf(inter_gbif)
+      # Intersection with GBIF data using DuckDB
+      iso_wkt <- st_as_text(st_geometry(poly_i)[[1]])
       
-      inter_gbif_acs <- sf_gbif %>% 
-        mutate(
-          income = medincE,
-          ndvi = ndvi_sentinel
-        )
+      gbif_summary <- gbif_tab |>
+        filter(sql(paste0("ST_Intersects(ST_GeomFromText(geom_wkt), ST_GeomFromText('", iso_wkt, "'))"))) |>
+        summarise(
+          n_records = n(),
+          n_species = n_distinct(species),
+          n_birds = n_distinct(case_when(class == 'Aves' ~ species, TRUE ~ NULL)),
+          n_mammals = n_distinct(case_when(class == 'Mammalia' ~ species, TRUE ~ NULL)),
+          n_plants = n_distinct(case_when(
+            class %in% c('Magnoliopsida','Liliopsida','Pinopsida','Polypodiopsida',
+                         'Equisetopsida','Bryopsida','Marchantiopsida') ~ species,
+            TRUE ~ NULL
+          ))
+        ) |>
+        collect()
       
-      if (nrow(inter_gbif) > 0) {
-        inter_gbif_acs <- inter_gbif_acs[inter_gbif_acs$GEOID %in% inter_gbif$GEOID, ]
-      }
-      
-      n_records   <- nrow(inter_gbif)
-      n_species   <- length(unique(inter_gbif$species))
-      
-      n_birds   <- length(unique(inter_gbif$species[inter_gbif$class == "Aves"]))
-      n_mammals <- length(unique(inter_gbif$species[inter_gbif$class == "Mammalia"]))
-      n_plants  <- length(unique(inter_gbif$species[inter_gbif$class %in% 
-                                                      c("Magnoliopsida","Liliopsida","Pinopsida","Polypodiopsida",
-                                                        "Equisetopsida","Bryopsida","Marchantiopsida") ]))
+      n_records <- ifelse(nrow(gbif_summary) > 0, gbif_summary$n_records, 0)
+      n_species <- ifelse(nrow(gbif_summary) > 0, gbif_summary$n_species, 0)
+      n_birds <- ifelse(nrow(gbif_summary) > 0, gbif_summary$n_birds, 0)
+      n_mammals <- ifelse(nrow(gbif_summary) > 0, gbif_summary$n_mammals, 0)
+      n_plants <- ifelse(nrow(gbif_summary) > 0, gbif_summary$n_plants, 0)
       
       iso_area_km2 <- round(iso_area_m2 / 1e6, 3)
       
@@ -937,12 +968,16 @@ server <- function(input, output, session) {
       results <- rbind(results, row_i)
     }
     
+    # Calculate biodiversity percentile for all isochrones combined
     iso_union <- st_union(iso_data)
-    vect_iso <- vect(iso_union)
-    inter_all_gbif <- intersect(vect_gbif, vect_iso)
-    inter_all_gbif <- st_as_sf(inter_all_gbif)
+    union_wkt <- st_as_text(st_geometry(iso_union)[[1]])
     
-    union_n_species <- length(unique(inter_all_gbif$species))
+    union_gbif_summary <- gbif_tab |>
+      filter(sql(paste0("ST_Intersects(ST_GeomFromText(geom_wkt), ST_GeomFromText('", union_wkt, "'))"))) |>
+      summarise(n_species = n_distinct(species)) |>
+      collect()
+    
+    union_n_species <- ifelse(nrow(union_gbif_summary) > 0, union_gbif_summary$n_species, 0)
     rank_percentile <- round(100 * ecdf(cbg_vect_sf$unique_species)(union_n_species), 1)
     attr(results, "bio_percentile") <- rank_percentile
 
@@ -1024,62 +1059,61 @@ server <- function(input, output, session) {
   # Secondary table: user-selected CLASS & FAMILY
   # ------------------------------------------------
 
-  #' The spatial join of the GBIF data with isochrones is computationally expensive.
-  #' This approach calculates the spatial join when the 'gbif' tab is selected
-  #' but when manipulating 'family' and 'class' the inter_gbif_acs value remains
-  #' constant.
+  #' Store isochrone union WKT for GBIF tab queries
+  #' DuckDB will handle spatial filtering efficiently
 
-  inter_gbif_acs <- reactiveVal(NULL) # Must first declare NULL value
+  iso_union_wkt <- reactiveVal(NULL) # Store WKT for spatial queries
 
   # Observe event when tab changes and evaluate when equals 'gbif'
   observeEvent(input$tabs, {
     req(isochrones_data())
-    # print(input$tabs)
     if (input$tabs == "gbif") {
       iso_data <- isochrones_data()
       if (is.null(iso_data) || nrow(iso_data) == 0) {
-        return(DT::datatable(data.frame("Message" = "No isochrones generated yet.")))
+        iso_union_wkt(NULL)
+        return()
       }
 
       iso_union <- st_union(iso_data)
-      vect_iso <- vect(iso_union)
-      inter_gbif <- intersect(vect_gbif, vect_iso)
-      inter_gbif <- st_as_sf(inter_gbif)
-
-      inter_gbif_acs_new <- sf_gbif %>%
-        mutate(
-          income = medincE,
-          ndvi = ndvi_sentinel
-        )
-      inter_gbif_acs(inter_gbif_acs_new) # updates inter_gbif_acs from NULL
+      union_wkt <- st_as_text(st_geometry(iso_union)[[1]])
+      iso_union_wkt(union_wkt)
     }
   })
 
   output$classTable <- renderDT({
-    req(inter_gbif_acs())
-
-    inter_gbif_acs <- inter_gbif_acs()
+    req(iso_union_wkt())
+    
+    union_wkt <- iso_union_wkt()
+    
+    # Start with spatial filter query
+    query <- gbif_tab |>
+      filter(sql(paste0("ST_Intersects(ST_GeomFromText(geom_wkt), ST_GeomFromText('", union_wkt, "'))")))
+    
+    # Apply class filter if not "All"
     if (input$class_filter != "All") {
-      inter_gbif_acs <- inter_gbif_acs[inter_gbif_acs$class == input$class_filter, ]
+      query <- query |> filter(class == input$class_filter)
     }
+    
+    # Apply family filter if not "All"
     if (input$family_filter != "All") {
-      inter_gbif_acs <- inter_gbif_acs[inter_gbif_acs$family == input$family_filter, ]
+      query <- query |> filter(family == input$family_filter)
     }
-
-    if (nrow(inter_gbif_acs) == 0) {
-      return(DT::datatable(data.frame("Message" = "No records for that combination in the isochrone.")))
-    }
-
-    species_counts <- inter_gbif_acs %>%
-      st_drop_geometry() %>%
-      group_by(species) %>%
+    
+    # Aggregate by species
+    species_counts <- query |>
+      group_by(species) |>
       summarize(
         n_records = n(),
-        mean_income = round(mean(income, na.rm = TRUE), 2),
-        mean_ndvi = round(mean(ndvi, na.rm = TRUE), 3),
+        mean_income = round(mean(medincE, na.rm = TRUE), 2),
+        mean_ndvi = round(mean(ndvi_sentinel, na.rm = TRUE), 3),
         .groups = "drop"
-      ) %>%
-      arrange(desc(n_records))
+      ) |>
+      arrange(desc(n_records)) |>
+      collect()
+
+    if (nrow(species_counts) == 0) {
+      return(DT::datatable(data.frame("Message" = "No records for that combination in the isochrone.")))
+    }
 
     DT::datatable(
       species_counts,
@@ -1130,22 +1164,22 @@ server <- function(input, output, session) {
     }
     
     iso_union <- st_union(iso_data)
-    vect_iso <- vect(iso_union)
-    inter_gbif <- intersect(vect_gbif, vect_iso)
-    inter_gbif = st_as_sf(inter_gbif)
+    union_wkt <- st_as_text(st_geometry(iso_union)[[1]])
     
-    if (nrow(inter_gbif) == 0) {
+    # Query GBIF data with spatial filter and aggregate by institution
+    df_code <- gbif_tab |>
+      filter(sql(paste0("ST_Intersects(ST_GeomFromText(geom_wkt), ST_GeomFromText('", union_wkt, "'))"))) |>
+      group_by(institutionCode) |>
+      summarize(count = n(), .groups = "drop") |>
+      arrange(desc(count)) |>
+      collect() |>
+      mutate(truncatedCode = substr(institutionCode, 1, 5))
+    
+    if (nrow(df_code) == 0) {
       plot.new()
       title("No GBIF records found in this isochrone.")
       return(NULL)
     }
-    
-    df_code <- inter_gbif %>%
-      st_drop_geometry() %>%
-      group_by(institutionCode) %>%
-      summarize(count = n(), .groups = "drop") %>%
-      arrange(desc(count)) %>%
-      mutate(truncatedCode = substr(institutionCode, 1, 5)) # Shorter version of the names 
     
     ggplot(df_code, aes(x = reorder(truncatedCode, -count), y = count)) +
       geom_bar(stat = "identity", fill = "darkorange", alpha = 0.7) +

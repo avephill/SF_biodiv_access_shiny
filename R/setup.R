@@ -75,17 +75,25 @@ ndvi <- terra::rast(ndvi_file)
 
 
 
-# -- GBIF data
-# Load what is basically inter_gbif !!!!! 
-# load("data/sf_gbif.Rdata")  # => sf_gbif
-gbif_file <- file.path(cache_dir, "gbif_census_ndvi_anno.Rdata")
-download_if_missing(
-  "https://huggingface.co/datasets/boettiger-lab/sf_biodiv_access/resolve/main/gbif_census_ndvi_anno.Rdata",
-  gbif_file,
-  "GBIF data"
-)
-load(gbif_file)
-vect_gbif <- vect(sf_gbif)
+# # -- GBIF data
+# # Load what is basically inter_gbif !!!!! 
+# # load("data/sf_gbif.Rdata")  # => sf_gbif
+# gbif_file <- file.path(cache_dir, "gbif_census_ndvi_anno.Rdata")
+# download_if_missing(
+#   "https://huggingface.co/datasets/boettiger-lab/sf_biodiv_access/resolve/main/gbif_census_ndvi_anno.Rdata",
+#   gbif_file,
+#   "GBIF data"
+# )
+# load(gbif_file)
+# vect_gbif <- vect(sf_gbif)
+
+# -- GBIF data (now loaded via DuckDB in app.R server function)
+# Verify parquet file exists
+gbif_parquet <- "data/output/gbif_census_ndvi_anno.parquet"
+if (!file.exists(gbif_parquet)) {
+  stop("GBIF parquet file not found. Please run: source('R/convert_gbif_to_parquet.R')")
+}
+print("GBIF parquet file verified")
 
 # -- Precomputed CBG data
 cbg_file <- file.path(cache_dir, "cbg_vect_sf.Rdata")

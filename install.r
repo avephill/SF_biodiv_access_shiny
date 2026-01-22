@@ -14,4 +14,8 @@ install.packages(c("shinyjs",
 "sjPlot",    
 "sjlabelled",
 "bslib",
-"shinycssloaders"))
+"shinycssloaders",
+"duckdb",
+"DBI",
+"dbplyr",
+"arrow"))
