@@ -31,9 +31,12 @@ if (!dir.exists(cache_dir)) {
   dir.create(cache_dir, recursive = TRUE)
 }
 
-download_if_missing <- function(url, destfile) {
+download_if_missing <- function(url, destfile, name = basename(destfile)) {
   if (!file.exists(destfile)) {
+    print(paste("Downloading", name, "from HuggingFace..."))
     download.file(url, destfile, mode = "wb")
+  } else {
+    print(paste("Loading", name, "from cache"))
   }
 }
 
@@ -44,8 +47,11 @@ download_if_missing <- function(url, destfile) {
 # -- Greenspace
 greenspace_shp <- file.path(cache_dir, "greenspaces_osm_nad83.shp")
 if (!file.exists(greenspace_shp)) {
+  print("Downloading greenspaces_osm_nad83.shp from HuggingFace...")
   st_read("/vsicurl/https://huggingface.co/datasets/boettiger-lab/sf_biodiv_access/resolve/main/greenspaces_osm_nad83.shp", quiet = TRUE) |>
     st_write(greenspace_shp, quiet = TRUE)
+} else {
+  print("Loading greenspaces_osm_nad83.shp from cache")
 }
 osm_greenspace <- st_read(greenspace_shp, quiet = TRUE) |>
   st_transform(4326)
@@ -53,13 +59,21 @@ if (!"name" %in% names(osm_greenspace)) {
   osm_greenspace$name <- "Unnamed Greenspace"
 }
 
+# -- Greenspace Distance Rasters
+print("Loading greenspace distance rasters from data/output/")
+greenspace_dist_raster <- terra::rast("data/output/nearest_greenspace_dist.tif")
+greenspace_osmid_raster <- terra::rast("data/output/nearest_greenspace_osmid.tif")
+
 # -- NDVI Raster
 ndvi_file <- file.path(cache_dir, "SF_EastBay_NDVI_Sentinel_10.tif")
 download_if_missing(
   "https://huggingface.co/datasets/boettiger-lab/sf_biodiv_access/resolve/main/SF_EastBay_NDVI_Sentinel_10.tif",
-  ndvi_file
+  ndvi_file,
+  "NDVI raster"
 )
 ndvi <- terra::rast(ndvi_file)
+
+
 
 # -- GBIF data
 # Load what is basically inter_gbif !!!!! 
@@ -67,7 +81,8 @@ ndvi <- terra::rast(ndvi_file)
 gbif_file <- file.path(cache_dir, "gbif_census_ndvi_anno.Rdata")
 download_if_missing(
   "https://huggingface.co/datasets/boettiger-lab/sf_biodiv_access/resolve/main/gbif_census_ndvi_anno.Rdata",
-  gbif_file
+  gbif_file,
+  "GBIF data"
 )
 load(gbif_file)
 vect_gbif <- vect(sf_gbif)
@@ -76,7 +91,8 @@ vect_gbif <- vect(sf_gbif)
 cbg_file <- file.path(cache_dir, "cbg_vect_sf.Rdata")
 download_if_missing(
   "https://huggingface.co/datasets/boettiger-lab/sf_biodiv_access/resolve/main/cbg_vect_sf.Rdata",
-  cbg_file
+  cbg_file,
+  "CBG data"
 )
 load(cbg_file)
 
@@ -96,20 +112,27 @@ if (!"ndvi_mean" %in% names(cbg_vect_sf)) {
 # -- Hotspots/Coldspots
 hotspots_shp <- file.path(cache_dir, "hotspots.shp")
 if (!file.exists(hotspots_shp)) {
+  print("Downloading hotspots.shp from HuggingFace...")
   st_read("/vsicurl/https://huggingface.co/datasets/boettiger-lab/sf_biodiv_access/resolve/main/hotspots.shp", quiet = TRUE) |>
     st_write(hotspots_shp, quiet = TRUE)
+} else {
+  print("Loading hotspots.shp from cache")
 }
 biodiv_hotspots <- st_read(hotspots_shp, quiet = TRUE) |> st_transform(4326)
 
 coldspots_shp <- file.path(cache_dir, "coldspots.shp")
 if (!file.exists(coldspots_shp)) {
+  print("Downloading coldspots.shp from HuggingFace...")
   st_read("/vsicurl/https://huggingface.co/datasets/boettiger-lab/sf_biodiv_access/resolve/main/coldspots.shp", quiet = TRUE) |>
     st_write(coldspots_shp, quiet = TRUE)
+} else {
+  print("Loading coldspots.shp from cache")
 }
 biodiv_coldspots <- st_read(coldspots_shp, quiet = TRUE) |> st_transform(4326)
 
 # -- RSF Program Projects
-rsf_projects <- st_read("data/source/RSF_Program_Projects_polygons.gpkg", quiet = TRUE) %>% 
+print("Loading RSF Program Projects from data/source/")
+rsf_projects <- st_read("data/source/RSF_Program_Projects_polygons.gpkg", quiet = TRUE) |> 
   st_transform(4326)
 
 

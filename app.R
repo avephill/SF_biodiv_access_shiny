@@ -371,6 +371,24 @@ server <- function(input, output, session) {
     pal_rich <- colorNumeric("YlOrRd", domain = cbg_vect_sf$unique_species)
     # Color palette for data availability
     pal_data <- colorNumeric("Blues", domain = cbg_vect_sf$n_observations)
+    # browser()
+    
+    # Color palette for greenspace distance (reversed so closer = cooler colors)
+
+    greenspace_vals_clean <- values(greenspace_dist_raster) |> 
+      na.omit() |> 
+      as.numeric()
+
+    # Cap at 95th percentile for better color distribution
+    upper_limit <- quantile(greenspace_vals_clean, 0.998, na.rm = TRUE)
+    # upper_limit <- max(greenspace_vals_clean, na.rm = TRUE)
+
+    pal_greenspace_dist <- colorNumeric(
+      "YlOrRd",
+      domain = c(0, upper_limit),
+      na.color = "transparent",
+      reverse = TRUE
+    )
     
     leaflet() %>%
       addTiles(group = "Street Map (Default)") %>%
@@ -520,10 +538,26 @@ server <- function(input, output, session) {
         )
       ) %>%
       
+      # Add Greenspace Distance Raster Layer
+      addRasterImage(
+        x = greenspace_dist_raster,
+        colors = pal_greenspace_dist,
+        opacity = 0.6,
+        project = TRUE,
+        group = "Greenspace Distance"
+      ) %>%
+      addLegend(
+        position = "bottomleft",
+        pal = pal_greenspace_dist,
+        values = 0:upper_limit,
+        title = "Distance to<br>Greenspace (m)",
+        group = "Greenspace Distance"
+      ) %>%
+      
       setView(lng = -122.4194, lat = 37.7749, zoom = 12) %>%
       addLayersControl(
         baseGroups    = c("Street Map (Default)", "Satellite (ESRI)", "CartoDB.Positron"),
-        overlayGroups = c("Income", "Greenspace", "RSF Program Projects",
+        overlayGroups = c("Income", "Greenspace", "Greenspace Distance", "RSF Program Projects",
                           "Hotspots (KnowBR)", "Coldspots (KnowBR)",
                           "Species Richness", "Data Availability",
                           "Isochrones", "NDVI Raster"),
@@ -535,7 +569,8 @@ server <- function(input, output, session) {
       hideGroup("Hotspots (KnowBR)") %>%
       hideGroup("Coldspots (KnowBR)") %>%
       hideGroup("Species Richness") %>%
-      hideGroup("Data Availability")
+      hideGroup("Data Availability") %>%
+      hideGroup("Greenspace Distance")
   })
   
   
@@ -727,7 +762,7 @@ server <- function(input, output, session) {
         overlayGroups = c("Income", "Greenspace", "RSF Program Projects",
                           "Hotspots (KnowBR)", "Coldspots (KnowBR)",
                           "Species Richness", "Data Availability",
-                          "Isochrones", "NDVI Raster"),
+                          "Isochrones", "NDVI Raster", "Greenspace Distance"),
         options = layersControlOptions(collapsed = FALSE)
       )
   })
@@ -739,6 +774,17 @@ server <- function(input, output, session) {
     iso_data <- isochrones_data()
     if (is.null(iso_data) || nrow(iso_data) == 0) {
       return(data.frame())
+    }
+    
+    # Get the clicked/geocoded point coordinates
+    user_point <- chosen_point()
+    user_point_sf <- NULL
+    if (!is.null(user_point)) {
+      user_point_sf <- st_as_sf(
+        data.frame(lon = user_point["lon"], lat = user_point["lat"]),
+        coords = c("lon", "lat"), 
+        crs = 4326
+      )
     }
     
     acs_wide <- cbg_vect_sf %>%
@@ -786,16 +832,53 @@ server <- function(input, output, session) {
       }
       
       # Intersection with greenspace
-      vec_osm_greenspace <- vect(osm_greenspace)
-      inter_gs <- intersect(vec_osm_greenspace, vect_poly_i)
-      inter_gs = st_as_sf(inter_gs)
+      # Closest Greenspace using pre-computed distance raster (fast)
+      osm_greenspace_name <- NA
+      min_dist_val <- NA
       
-      gs_area_m2 <- 0
-      if (nrow(inter_gs) > 0) {
-        gs_area_m2 <- sum(st_area(inter_gs))
+      if (!is.null(user_point_sf)) {
+        min_dist_val <- greenspace_dist_raster |> extract(user_point_sf) |> pull(greenspace_nearest_dist)
+        user_point_osm_id <- greenspace_osmid_raster |> extract(user_point_sf) |> pull(2)
+
+        osm_greenspace_name <- osm_greenspace |> mutate(osm_id = as.numeric(osm_id)) |>   
+          filter(osm_id == as.numeric(user_point_osm_id)) |> pull(name)
+          # browser()
+        if(is.na(osm_greenspace_name)) {
+          osm_greenspace_name <- "Unnamed Greenspace"
+        }
       }
+    
+      # browser()
+
+      # OLD: Vector intersection approach (slower)
+      # vec_osm_greenspace <- vect(osm_greenspace)
+      # inter_gs_old <- intersect(vec_osm_greenspace, vect_poly_i)
+      # inter_gs_old = st_as_sf(inter_gs_old)
+      
+      # gs_area_m2_old <- 0
+      # if (nrow(inter_gs_old) > 0) {
+      #   gs_area_m2_old <- sum(st_area(inter_gs_old))
+      # }
+      # iso_area_m2_old <- as.numeric(st_area(poly_i))
+      # gs_area_m2_old <- as.numeric(gs_area_m2_old)
+      # gs_percent_old <- ifelse(iso_area_m2_old > 0, 100 * gs_area_m2_old / iso_area_m2_old, 0)
+      
+      # NEW: Raster-based approach (should be faster)
+      # Crop distance raster to isochrone
+      dist_crop <- terra::crop(greenspace_dist_raster, vect_poly_i)
+      dist_mask <- terra::mask(dist_crop, vect_poly_i)
+      
+      # Pixels with distance = 0 are greenspace
+      is_greenspace <- dist_mask == 0
+      
+      # Calculate greenspace area
+      # Use cellSize() to get actual area in m² for each cell (handles degree-to-meter conversion)
+      cell_areas <- terra::cellSize(is_greenspace, unit = "m")
+      # Sum areas where is_greenspace = TRUE
+      gs_area_m2 <- as.numeric(terra::global(cell_areas * is_greenspace, "sum", na.rm = TRUE)[1, 1])
+      
+      # Calculate percentage
       iso_area_m2 <- as.numeric(st_area(poly_i))
-      gs_area_m2 <- as.numeric(gs_area_m2)
       gs_percent <- ifelse(iso_area_m2 > 0, 100 * gs_area_m2 / iso_area_m2, 0)
       
       # NDVI Calculation
@@ -847,6 +930,8 @@ server <- function(input, output, session) {
         Plant_Species       = n_plants,
         Greenspace_m2       = round(gs_area_m2, 2),
         Greenspace_percent  = round(gs_percent, 2),
+        closest_greenspace = osm_greenspace_name,
+        closest_greenspace_dist_m = round(min_dist_val, 1),
         stringsAsFactors    = FALSE
       )
       results <- rbind(results, row_i)
@@ -860,18 +945,7 @@ server <- function(input, output, session) {
     union_n_species <- length(unique(inter_all_gbif$species))
     rank_percentile <- round(100 * ecdf(cbg_vect_sf$unique_species)(union_n_species), 1)
     attr(results, "bio_percentile") <- rank_percentile
-    
-    # Closest Greenspace from ANY part of the isochrone
-    dist_mat <- st_distance(iso_union, osm_greenspace)  # 1 x N matrix
-    if (length(dist_mat) > 0) {
-      min_dist <- min(dist_mat)
-      min_idx  <- which.min(dist_mat)
-      gs_name  <- osm_greenspace$name[min_idx]
-      attr(results, "closest_greenspace") <- gs_name
-    } else {
-      attr(results, "closest_greenspace") <- "None"
-    }
-    
+
     results
   })
   
@@ -930,12 +1004,19 @@ server <- function(input, output, session) {
   output$closestGreenspaceUI <- renderUI({
     df <- socio_data()
     if (nrow(df) == 0) return(NULL)
-    gs_name <- attr(df, "closest_greenspace")
-    if (is.null(gs_name)) gs_name <- "None"
+    # browser()
+    
+    closest_gs <- df |> 
+    slice_min(closest_greenspace_dist_m) |> 
+    slice_head(n = 1) 
+
+    gs_name <- closest_gs$closest_greenspace
+    gs_dist <- closest_gs$closest_greenspace_dist_m
     
     tagList(
-      strong("Closest Greenspace (from any part of the Isochrone):"),
-      p(gs_name)
+      strong("Closest Greenspace:"),
+      # strong("Closest Greenspace (from any part of the Isochrone):"),
+      p(paste0(gs_name, " (", gs_dist, "m away)"))
     )
   })
   
@@ -1197,6 +1278,3 @@ server <- function(input, output, session) {
 
 # Run the Shiny app
 shinyApp(ui, server)
-
-# 
-
