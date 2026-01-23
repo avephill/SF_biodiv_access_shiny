@@ -763,31 +763,32 @@ server <- function(input, output, session) {
     
     iso_union <- st_union(iso_data)
     iso_union_vect <- vect(iso_union)
-    ndvi_crop <- terra::crop(ndvi, iso_union_vect)
-    ndvi_mask <- terra::mask(ndvi_crop, iso_union_vect)
-    ndvi_vals <- values(ndvi_mask)
-    ndvi_vals <- ndvi_vals[!is.na(ndvi_vals)]
-    
-    if (length(ndvi_vals) > 0) {
-      ndvi_pal <- colorNumeric("YlGn", domain = range(ndvi_vals, na.rm = TRUE), na.color = "transparent")
-      
-      leafletProxy("isoMap") %>%
-        addRasterImage(
-          x = ndvi_mask,
-          colors = ndvi_pal,
-          opacity = 0.7,
-          project = TRUE,
-          group = "NDVI Raster"
-        ) %>%
-        removeControl(layerId = "ndvi_legend") %>%
-        addLegend(
-          position = "bottomright",
-          pal = ndvi_pal,
-          values = ndvi_vals,
-          title = "NDVI",
-          layerId = "ndvi_legend"
-        )
-    }
+    # COMMENTED OUT: Something wrong with NDVI file
+    # ndvi_crop <- terra::crop(ndvi, iso_union_vect)
+    # ndvi_mask <- terra::mask(ndvi_crop, iso_union_vect)
+    # ndvi_vals <- values(ndvi_mask)
+    # ndvi_vals <- ndvi_vals[!is.na(ndvi_vals)]
+    # 
+    # if (length(ndvi_vals) > 0) {
+    #   ndvi_pal <- colorNumeric("YlGn", domain = range(ndvi_vals, na.rm = TRUE), na.color = "transparent")
+    #   
+    #   leafletProxy("isoMap") %>%
+    #     addRasterImage(
+    #       x = ndvi_mask,
+    #       colors = ndvi_pal,
+    #       opacity = 0.7,
+    #       project = TRUE,
+    #       group = "NDVI Raster"
+    #     ) %>%
+    #     removeControl(layerId = "ndvi_legend") %>%
+    #     addLegend(
+    #       position = "bottomright",
+    #       pal = ndvi_pal,
+    #       values = ndvi_vals,
+    #       title = "NDVI",
+    #       layerId = "ndvi_legend"
+    #     )
+    # }
     
     # Ensure other layers remain
     leafletProxy("isoMap") %>%
@@ -920,12 +921,14 @@ server <- function(input, output, session) {
       gs_percent <- ifelse(iso_area_m2 > 0, 100 * gs_area_m2 / iso_area_m2, 0)
       
       # NDVI Calculation
-      poly_vect <- vect(poly_i)
-      ndvi_crop <- terra::crop(ndvi, poly_vect)
-      ndvi_mask <- terra::mask(ndvi_crop, poly_vect)
-      ndvi_vals <- values(ndvi_mask)
-      ndvi_vals <- ndvi_vals[!is.na(ndvi_vals)]
-      mean_ndvi <- ifelse(length(ndvi_vals) > 0, round(mean(ndvi_vals, na.rm=TRUE), 3), NA)
+      # COMMENTED OUT: Something wrong with NDVI file
+      # poly_vect <- vect(poly_i)
+      # ndvi_crop <- terra::crop(ndvi, poly_vect)
+      # ndvi_mask <- terra::mask(ndvi_crop, poly_vect)
+      # ndvi_vals <- values(ndvi_mask)
+      # ndvi_vals <- ndvi_vals[!is.na(ndvi_vals)]
+      mean_ndvi <- NA  # Temporarily set to NA while NDVI file is unavailable
+      # mean_ndvi <- ifelse(length(ndvi_vals) > 0, round(mean(ndvi_vals, na.rm=TRUE), 3), NA)
       
       # Intersection with GBIF data using DuckDB
       iso_wkt <- st_as_text(st_geometry(poly_i)[[1]])
